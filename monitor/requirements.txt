@@ -1,0 +1,2 @@
+-r ../server/requirements.txt
+iterm2==2.14

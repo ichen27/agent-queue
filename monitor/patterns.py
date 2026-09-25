@@ -22,6 +22,7 @@ def is_claude_code_session(output: str) -> bool:
 
 _PERMISSION_PATTERNS = [
     re.compile(r"Allow\s+Deny", re.IGNORECASE),
+    re.compile(r"^\s*Yes\s+No\s*$", re.IGNORECASE | re.MULTILINE),
     re.compile(r"\(y/n\)", re.IGNORECASE),
 ]
 
@@ -61,7 +62,7 @@ def detect_state(output: str, content_changed: bool = False) -> str:
             return "permission_prompt"
 
     # Ready prompt: ❯ after a separator in the tail
-    if _READY_PATTERN.search(tail):
+    if _READY_PATTERN.search(tail) or re.search(r"^\s*[❯$]\s*$", tail, re.MULTILINE):
         if re.search(r"Context\s+░{5,}\s+0%", tail):
             return "idle"
         return "ready"
@@ -182,3 +183,20 @@ def extract_last_prompt(text: str) -> str:
                     return prompt[:77] + "..."
                 return prompt
     return ""
+
+
+def extract_tail(text: str, lines: int = 50) -> str:
+    """Return a bounded terminal excerpt."""
+    return "\n".join(text.splitlines()[-lines:]) if lines > 0 else ""
+
+
+def has_reply_prompt(output: str) -> bool:
+    """Require a current empty Claude prompt, not a shell or an old scrollback prompt."""
+    lines = clean_output(output).splitlines()[-8:]
+    for line in reversed(lines):
+        value = line.strip()
+        if re.fullmatch(r"❯\s*", value):
+            return True
+        if value and not _is_chrome_line(value):
+            return False
+    return False

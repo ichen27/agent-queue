@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """
-Claude Code Command Center — iTerm2 Monitor Script
+Agent Queue — iTerm2 Monitor Script
 
-AutoLaunch script that watches all iTerm2 sessions for Claude Code activity
+Local script that watches all iTerm2 sessions for Claude Code activity
 and pushes events to the backend server via WebSocket.
 """
 
 import asyncio
 import json
+import time
 import iterm2
 import websockets
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(__file__))
-from patterns import detect_state, clean_output, strip_chrome, is_claude_code_session, extract_last_prompt
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from monitor.commands import execute_command
+from monitor.patterns import detect_state, clean_output, strip_chrome, is_claude_code_session, extract_last_prompt
 
-SERVER_URL = "ws://localhost:7890/ws/monitor"
+SERVER_URL = os.environ.get("AGENT_QUEUE_MONITOR_URL", "ws://127.0.0.1:7890/ws/monitor")
 POLL_INTERVAL = 2.0
 
 _prev_content: dict[str, str] = {}
@@ -64,60 +66,27 @@ async def connect_to_server():
 
 
 async def handle_commands(ws, app):
-    try:
-        async for raw in ws:
-            data = json.loads(raw)
-            cmd = data.get("command")
-            sid = data.get("session_id")
-            payload = data.get("payload", {})
-
-            session = None
-            for window in app.terminal_windows:
-                for tab in window.tabs:
-                    for s in tab.sessions:
-                        if s.session_id == sid:
-                            session = s
-                            break
-
-            if not session:
-                print(f"[monitor] Session {sid} not found")
-                continue
-
-            if cmd == "send_text":
-                text = payload.get("text", "")
-                await session.async_send_text(text + "\r")
-                print(f"[monitor] Sent text to {sid}: {text[:50]}")
-
-            elif cmd == "focus_tab":
-                for window in app.terminal_windows:
-                    for tab in window.tabs:
-                        if session in tab.sessions:
-                            await tab.async_activate()
-                            await window.async_activate()
-                            print(f"[monitor] Focused tab for {sid}")
-                            break
-
-            elif cmd == "rename_tab":
-                name = payload.get("name", "")
-                for window in app.terminal_windows:
-                    for tab in window.tabs:
-                        if session in tab.sessions:
-                            await tab.async_set_title(name)
-                            print(f"[monitor] Renamed tab for {sid}: {name}")
-                            break
-
-            elif cmd == "get_history":
-                full_text = await read_session_contents(session)
-                print(f"[monitor] History requested for {sid}: {len(full_text.split(chr(10)))} lines")
-
-    except websockets.ConnectionClosed:
-        print("[monitor] Server connection lost in command handler")
+    async for raw in ws:
+        data = json.loads(raw)
+        if "command" not in data:
+            continue
+        ack = {"type": "command_ack", "command_id": data.get("command_id"), "ok": False}
+        try:
+            await execute_command(data, app, read_session_contents)
+            ack["ok"] = True
+        except Exception as exc:
+            # Do not log reply contents or terminal history.
+            ack["error"] = str(exc) if isinstance(exc, ValueError) else "iTerm2 could not confirm this operation. Check the terminal."
+        await ws.send(json.dumps(ack))
 
 
 async def poll_sessions(ws, app):
+    last_refresh = 0.0
     while True:
         try:
-            now = asyncio.get_event_loop().time()
+            now = time.time()
+            refresh = now - last_refresh >= 10
+            active_ids = []
 
             for window in app.terminal_windows:
                 for tab in window.tabs:
@@ -136,6 +105,7 @@ async def poll_sessions(ws, app):
                                 del _prev_state[sid]
                             continue
 
+                        active_ids.append(sid)
                         prev = _prev_content.get(sid, "")
                         content_changed = full_text != prev
                         if content_changed:
@@ -150,8 +120,8 @@ async def poll_sessions(ws, app):
                             _prev_state[sid] = state
 
                         # Send update on state change OR content change
-                        if state_changed or content_changed:
-                            cleaned = clean_output(full_text)
+                        if state_changed or content_changed or refresh:
+                            cleaned = clean_output(full_text)[-100_000:]
                             stripped = strip_chrome(cleaned)
                             event = {
                                 "session_id": sid,
@@ -169,8 +139,16 @@ async def poll_sessions(ws, app):
                                 print("[monitor] Lost connection while sending")
                                 return
 
+            await ws.send(json.dumps({"type": "inventory", "session_ids": active_ids}))
+            for cache in (_prev_content, _prev_state, _last_change_time):
+                for sid in set(cache) - set(active_ids):
+                    cache.pop(sid, None)
+            if refresh:
+                last_refresh = now
+        except websockets.ConnectionClosed:
+            return
         except Exception as e:
-            print(f"[monitor] Poll error: {e}")
+            print(f"[monitor] Poll error: {type(e).__name__}")
 
         await asyncio.sleep(POLL_INTERVAL)
 
@@ -181,10 +159,12 @@ async def main(connection):
         print("[monitor] Could not get iTerm2 app")
         return
 
-    print("[monitor] Starting Claude Code Command Center monitor")
+    print("[monitor] Starting Agent Queue monitor")
 
     while True:
         ws = await connect_to_server()
+        _prev_content.clear()
+        _prev_state.clear()
 
         poll_task = asyncio.create_task(poll_sessions(ws, app))
         cmd_task = asyncio.create_task(handle_commands(ws, app))
@@ -195,6 +175,7 @@ async def main(connection):
         )
         for task in pending:
             task.cancel()
+        await asyncio.gather(*done, *pending, return_exceptions=True)
 
         try:
             await ws.close()
@@ -205,4 +186,5 @@ async def main(connection):
         await asyncio.sleep(3)
 
 
-iterm2.run_forever(main)
+if __name__ == "__main__":
+    iterm2.run_forever(main)

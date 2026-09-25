@@ -91,6 +91,8 @@ def test_monitor_websocket_processes_event(live_server):
                 }))
                 raw = await asyncio.wait_for(dash_ws.recv(), timeout=5)
                 data = json.loads(raw)
+                if data["type"] == "snapshot":
+                    data = json.loads(await asyncio.wait_for(dash_ws.recv(), timeout=5))
                 assert data["type"] == "event"
                 assert data["event"]["session_id"] == "s1"
 
