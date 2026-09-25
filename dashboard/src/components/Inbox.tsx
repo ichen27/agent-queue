@@ -1,199 +1,499 @@
-import { useState, useEffect, useRef, type KeyboardEvent } from "react";
-import type { SessionState, Command } from "../types";
+import { useState, type FormEvent } from "react";
+import type { SessionState, Command, CommandResult } from "../types";
 
-interface InboxProps {
+interface Props {
   sessions: Record<string, SessionState>;
   selected: SessionState | null;
   connected: boolean;
+  monitorConnected: boolean;
+  demo: boolean;
   onSelect: (id: string | null) => void;
-  onCommand: (cmd: Command) => void;
+  onCommand: (command: Command) => Promise<CommandResult>;
+  onReset: () => void;
 }
-
-const STATUS_DOT: Record<string, string> = {
-  permission_prompt: "dot-red",
-  needs_input: "dot-yellow",
-  ready: "dot-green",
-  working: "dot-blue",
-  idle: "dot-gray",
-};
-
-const STATUS_LABEL: Record<string, string> = {
+const LABELS = {
   permission_prompt: "Permission",
-  needs_input: "Waiting",
-  ready: "Ready",
+  needs_input: "Needs input",
+  ready: "Ready for review",
   working: "Working",
   idle: "Idle",
 };
+const needsAttention = (s: SessionState) =>
+  s.available &&
+  ["ready", "needs_input", "permission_prompt"].includes(s.status);
+type Filter = "all" | "attention" | "working" | "unavailable";
 
-function sortedSessions(sessions: Record<string, SessionState>): SessionState[] {
-  return Object.values(sessions).sort((a, b) => b.last_event_time - a.last_event_time);
+function Status({ session }: { session: SessionState }) {
+  return (
+    <span
+      className={`status status-${session.available ? session.status : "unavailable"}`}
+    >
+      <i />
+      {session.available ? LABELS[session.status] : "Unavailable"}
+    </span>
+  );
 }
 
-export function Inbox({ sessions, selected, connected, onSelect, onCommand }: InboxProps) {
-  const sorted = sortedSessions(sessions);
-  const attention = sorted.filter(
-    (s) => s.status === "ready" || s.status === "needs_input" || s.status === "permission_prompt"
+export function Inbox({
+  sessions,
+  selected,
+  connected,
+  monitorConnected,
+  demo,
+  onSelect,
+  onCommand,
+  onReset,
+}: Props) {
+  const [filter, setFilter] = useState<Filter>("all");
+  const [search, setSearch] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [notifications, setNotifications] = useState("");
+  const all = Object.values(sessions);
+  const attention = all.filter(needsAttention).length;
+  const working = all.filter(
+    (s) => s.available && s.status === "working",
   ).length;
-  const working = sorted.filter((s) => s.status === "working").length;
-
+  const unavailable = all.filter((s) => !s.available).length;
+  const filtered = all
+    .filter(
+      (s) =>
+        filter === "all" ||
+        (filter === "attention" && needsAttention(s)) ||
+        (filter === "working" && s.available && s.status === "working") ||
+        (filter === "unavailable" && !s.available),
+    )
+    .filter((s) =>
+      `${s.tab_name} ${s.summary}`.toLowerCase().includes(search.toLowerCase()),
+    )
+    .sort(
+      (a, b) =>
+        Number(b.available) - Number(a.available) ||
+        Number(needsAttention(b)) - Number(needsAttention(a)) ||
+        a.tab_name.localeCompare(b.tab_name),
+    );
+  const live = demo || (connected && monitorConnected);
+  async function enableNotifications() {
+    if (typeof Notification === "undefined") {
+      setNotifications("This browser does not support notifications.");
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    setNotifications(
+      permission === "granted"
+        ? "Notifications enabled."
+        : "Notifications are off. You can change this in browser settings.",
+    );
+  }
   return (
-    <div className="inbox-layout">
-      <div className="inbox-sidebar">
-        <div className="inbox-header">
-          <div className="inbox-title">
-            Claude Code
-            <span className={`conn-dot ${connected ? "connected" : "disconnected"}`} />
-          </div>
-          <div className="inbox-counts">
-            {attention > 0 && <span className="count-badge count-attention">{attention}</span>}
-            {working > 0 && <span className="count-badge count-working">{working}</span>}
-          </div>
-        </div>
-        <div className="inbox-list">
-          {sorted.map((s) => (
-            <div
-              key={s.session_id}
-              className={`inbox-item ${selected?.session_id === s.session_id ? "inbox-item-selected" : ""} ${
-                s.status === "permission_prompt" || s.status === "needs_input" || s.status === "ready" ? "inbox-item-attention" : ""
-              }`}
-              onClick={() => onSelect(s.session_id)}
-            >
-              <div className="inbox-item-top">
-                <span className={`status-dot ${STATUS_DOT[s.status] || "dot-gray"}`} />
-                <span className="inbox-item-name">{s.tab_name || s.session_id}</span>
-                <span className="inbox-item-status">{STATUS_LABEL[s.status] || s.status}</span>
-              </div>
-              {s.summary && (
-                <div className="inbox-item-prompt">{s.summary}</div>
-              )}
-            </div>
-          ))}
-          {sorted.length === 0 && (
-            <div className="inbox-empty">No sessions detected</div>
+    <div className="app-shell">
+      <header className="topbar">
+        <a
+          className="brand"
+          href={demo ? "?demo=1" : "/"}
+          aria-label="Agent Queue home"
+        >
+          <span className="brand-icon" aria-hidden="true">
+            ≋
+          </span>
+          Agent Queue<span className="brand-tag">LOCAL WORKSPACE</span>
+        </a>
+        <div className="top-actions">
+          {demo ? (
+            <span className="demo-chip">INTERACTIVE DEMO</span>
+          ) : (
+            <span className={`connection ${live ? "online" : ""}`}>
+              <i />
+              {!connected
+                ? "Reconnecting…"
+                : monitorConnected
+                  ? "Monitor connected"
+                  : "Monitor offline"}
+            </span>
           )}
+          <a
+            href="https://github.com/ichen27/agent-queue"
+            target="_blank"
+            rel="noreferrer"
+          >
+            GitHub ↗
+          </a>
         </div>
-      </div>
-
-      <div className="inbox-detail">
-        {selected ? (
-          <DetailPane session={selected} onCommand={onCommand} />
-        ) : (
-          <div className="detail-empty">
-            <p>Select a session</p>
+      </header>
+      {demo && (
+        <div className="demo-banner">
+          <span>
+            <strong>Explore a simulated workspace.</strong> Sample output and
+            replies stay in this browser. No real terminals are connected.
+          </span>
+          <button onClick={onReset}>Reset demo ↺</button>
+        </div>
+      )}
+      <main>
+        <section className="workspace-heading">
+          <div>
+            <p className="eyebrow">CLAUDE CODE + ITERM2</p>
+            <h1>
+              Session inbox<span>.</span>
+            </h1>
+            <p className="subtitle">A clear view of what needs you next.</p>
+          </div>
+          <div className="metrics" aria-label="Session summary">
+            <div>
+              <span className="metric-number attention-number">
+                {attention.toString().padStart(2, "0")}
+              </span>
+              <span>Need attention</span>
+            </div>
+            <div>
+              <span className="metric-number">
+                {working.toString().padStart(2, "0")}
+              </span>
+              <span>Working</span>
+            </div>
+            <div>
+              <span className="metric-number muted-number">
+                {all.length.toString().padStart(2, "0")}
+              </span>
+              <span>Total sessions</span>
+            </div>
+          </div>
+        </section>
+        {!demo && !live && (
+          <div className="connection-notice" role="status">
+            {connected
+              ? "The dashboard is connected, but the iTerm2 monitor is offline. Captured output stays visible; terminal actions are disabled."
+              : "Reconnecting to the local server. Commands are disabled and will not be replayed."}
           </div>
         )}
-      </div>
+        <div className={`inbox-layout ${selected ? "has-selection" : ""}`}>
+          <aside className="inbox-sidebar" aria-label="Sessions">
+            <div className="sidebar-heading">
+              <h2>
+                Sessions <span>{all.length}</span>
+              </h2>
+              <span className="local-label">
+                {demo ? "SAMPLE WORKSPACE" : "ON THIS MACHINE"}
+              </span>
+            </div>
+            <div className="search-wrap">
+              <span aria-hidden="true">⌕</span>
+              <input
+                type="search"
+                aria-label="Search sessions"
+                placeholder="Find a session…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <div className="filters" aria-label="Filter sessions">
+              {(
+                [
+                  ["all", "All", all.length],
+                  ["attention", "Attention", attention],
+                  ["working", "Working", working],
+                  ["unavailable", "Offline", unavailable],
+                ] as const
+              ).map(([value, label, count]) => (
+                <button
+                  key={value}
+                  aria-label={`${label} ${count}`}
+                  aria-pressed={filter === value}
+                  onClick={() => setFilter(value)}
+                >
+                  {label}
+                  <span>{count}</span>
+                </button>
+              ))}
+            </div>
+            <div className="inbox-list">
+              {filtered.map((s) => (
+                <button
+                  key={s.session_id}
+                  className={`session-row ${selected?.session_id === s.session_id ? "selected" : ""}`}
+                  aria-pressed={selected?.session_id === s.session_id}
+                  onClick={() => onSelect(s.session_id)}
+                >
+                  <div className="session-row-top">
+                    <span className="session-name">
+                      {s.tab_name || s.session_id}
+                    </span>
+                    <span className="row-arrow" aria-hidden="true">
+                      ↗
+                    </span>
+                  </div>
+                  <p>{s.summary || "Waiting for captured output"}</p>
+                  <Status session={s} />
+                </button>
+              ))}
+              {filtered.length === 0 && (
+                <div className="empty-list">
+                  <strong>
+                    {all.length
+                      ? "No matching sessions"
+                      : "Your inbox is ready"}
+                  </strong>
+                  <p>
+                    {all.length
+                      ? "Try a different search or filter."
+                      : "Start the monitor and a Claude Code session in iTerm2. Your sessions will appear here."}
+                  </p>
+                  {!all.length && <a href="?demo=1">Explore the demo →</a>}
+                </div>
+              )}
+            </div>
+            <div className="sidebar-footer">
+              <span className={`connection ${live ? "online" : ""}`}>
+                <i />
+                {demo
+                  ? "Simulation · browser only"
+                  : live
+                    ? "Local monitor connected"
+                    : "Waiting for connection"}
+              </span>
+              <span>Output stays on your machine</span>
+            </div>
+          </aside>
+          <section className="inbox-detail" aria-label="Selected session">
+            {selected ? (
+              <DetailPane
+                key={selected.session_id}
+                session={selected}
+                live={live}
+                demo={demo}
+                onCommand={onCommand}
+                onBack={() => onSelect(null)}
+                reply={drafts[selected.session_id] ?? ""}
+                onReply={(text) =>
+                  setDrafts((current) => ({
+                    ...current,
+                    [selected.session_id]: text,
+                  }))
+                }
+              />
+            ) : (
+              <div className="detail-empty">
+                <div className="empty-symbol" aria-hidden="true">
+                  ≋
+                </div>
+                <h2>
+                  Less tab switching.
+                  <br />
+                  More forward motion.
+                </h2>
+                <p>
+                  Select a session to review its output
+                  <br />
+                  and decide what happens next.
+                </p>
+              </div>
+            )}
+          </section>
+        </div>
+        <footer className="workspace-footer">
+          <span>Built for the space between agent turns.</span>
+          <div>
+            {notifications && <span role="status">{notifications}</span>}
+            {!demo && (
+              <button onClick={enableNotifications}>
+                Enable notifications
+              </button>
+            )}
+            <span>Single machine. No cloud account.</span>
+          </div>
+        </footer>
+      </main>
     </div>
   );
 }
 
-function DetailPane({ session, onCommand }: { session: SessionState; onCommand: (cmd: Command) => void }) {
-  const [reply, setReply] = useState("");
-  const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState("");
-  const outputRef = useRef<HTMLPreElement>(null);
-  const editRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (outputRef.current) {
-      outputRef.current.scrollTop = outputRef.current.scrollHeight;
-    }
-  }, [session.tail_output]);
-
-  useEffect(() => {
-    if (editing && editRef.current) {
-      editRef.current.focus();
-      editRef.current.select();
-    }
-  }, [editing]);
-
-  function startEditing() {
-    setEditName(session.tab_name || session.session_id);
-    setEditing(true);
+function DetailPane({
+  session,
+  live,
+  demo,
+  onCommand,
+  onBack,
+  reply,
+  onReply,
+}: {
+  session: SessionState;
+  live: boolean;
+  demo: boolean;
+  onCommand: Props["onCommand"];
+  onBack: () => void;
+  reply: string;
+  onReply: (text: string) => void;
+}) {
+  const [result, setResult] = useState<CommandResult | null>(null);
+  const [pending, setPending] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [name, setName] = useState(session.tab_name);
+  const available = live && session.available;
+  const canReply =
+    available && ["ready", "needs_input"].includes(session.status);
+  async function command(
+    kind: Command["command"],
+    payload: Record<string, string>,
+  ) {
+    setPending(true);
+    setResult(null);
+    const outcome = await onCommand({
+      command: kind,
+      session_id: session.session_id,
+      expected_revision: session.revision,
+      payload,
+    });
+    setResult(outcome);
+    setPending(false);
+    if (outcome.ok && kind === "send_text") onReply("");
+    if (outcome.ok && kind === "rename_tab") setRenaming(false);
   }
-
-  function commitRename() {
-    const name = editName.trim();
-    if (name && name !== session.tab_name) {
-      onCommand({ command: "rename_tab", session_id: session.session_id, payload: { name } });
-    }
-    setEditing(false);
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (canReply && reply.trim() && !pending)
+      void command("send_text", { text: reply });
   }
-
-  function handleEditKeyDown(e: KeyboardEvent) {
-    if (e.key === "Enter") { e.preventDefault(); commitRename(); }
-    if (e.key === "Escape") { setEditing(false); }
-  }
-
-  function sendReply() {
-    if (!reply.trim()) return;
-    onCommand({ command: "send_text", session_id: session.session_id, payload: { text: reply } });
-    setReply("");
-  }
-
-  function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(); }
-  }
-
-  function jumpToTab() {
-    onCommand({ command: "focus_tab", session_id: session.session_id, payload: {} });
-  }
-
-  const isPermission = session.status === "permission_prompt";
-  const needsReply = session.status === "ready" || session.status === "needs_input";
-
   return (
     <div className="detail-pane">
       <div className="detail-header">
+        <button className="back-button" onClick={onBack}>
+          ← Sessions
+        </button>
+        <div className="detail-kicker">
+          <span>SESSION DETAIL</span>
+          <Status session={session} />
+        </div>
         <div className="detail-title-row">
-          {editing ? (
+          <h2>{session.tab_name || session.session_id}</h2>
+          <button
+            className="icon-button"
+            title="Rename session"
+            aria-label="Rename session"
+            disabled={!available || pending}
+            onClick={() => setRenaming(!renaming)}
+          >
+            ✎
+          </button>
+        </div>
+        {renaming && (
+          <form
+            className="rename-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void command("rename_tab", { name });
+            }}
+          >
             <input
-              ref={editRef}
-              className="tab-name-input"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              onKeyDown={handleEditKeyDown}
-              onBlur={commitRename}
+              aria-label="Session name"
+              value={name}
+              maxLength={100}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
             />
-          ) : (
-            <h2 className="detail-name" onDoubleClick={startEditing}>{session.tab_name || session.session_id}</h2>
-          )}
-          <span className={`detail-status detail-status-${session.status}`}>
-            {STATUS_LABEL[session.status] || session.status}
-          </span>
-        </div>
-        <div className="detail-actions">
-          {session.summary && <span className="detail-prompt">{session.summary}</span>}
-          <button className="btn btn-link" onClick={jumpToTab}>Jump to Tab</button>
-        </div>
-      </div>
-
-      <pre ref={outputRef} className="detail-output">{session.tail_output || "No output yet"}</pre>
-
-      <div className="detail-footer">
-        {isPermission && (
-          <div className="quick-actions">
-            <button className="btn btn-allow" onClick={() => onCommand({ command: "send_text", session_id: session.session_id, payload: { text: "y" } })}>
-              Allow
+            <button disabled={pending || !name.trim()}>Save</button>
+            <button type="button" onClick={() => setRenaming(false)}>
+              Cancel
             </button>
-            <button className="btn btn-deny" onClick={() => onCommand({ command: "send_text", session_id: session.session_id, payload: { text: "n" } })}>
-              Deny
+          </form>
+        )}
+        <p className="detail-summary">
+          {session.summary || "No prompt captured yet."}
+        </p>
+      </div>
+      <div className="output-toolbar">
+        <span>
+          <i className="terminal-icon" aria-hidden="true">
+            ›_
+          </i>{" "}
+          Captured output {demo && <small>SIMULATED</small>}
+        </span>
+        <button
+          disabled={!available || pending}
+          onClick={() => void command("focus_tab", {})}
+        >
+          Open in iTerm2 ↗
+        </button>
+      </div>
+      <pre
+        className="detail-output"
+        tabIndex={0}
+        aria-label="Captured terminal output"
+      >
+        {session.tail_output || "No output captured yet."}
+      </pre>
+      <div className="detail-footer">
+        {result && (
+          <p
+            className={`command-result ${result.ok ? "success" : "failure"}`}
+            role="status"
+          >
+            {result.ok ? result.message : result.error}
+          </p>
+        )}
+        {session.status === "permission_prompt" && available && (
+          <div className="permission-note">
+            <strong>A terminal decision is waiting.</strong>
+            <p>Review the exact command in iTerm2 before approving it.</p>
+            <button
+              className="primary-button"
+              disabled={pending}
+              onClick={() => void command("focus_tab", {})}
+            >
+              Review in iTerm2 ↗
             </button>
           </div>
         )}
-        {(needsReply || isPermission) && (
-          <div className="reply-box">
-            <input
-              type="text"
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type your response..."
-              className="reply-input"
-              autoFocus
-            />
-            <button className="btn btn-send" onClick={sendReply}>Send</button>
-          </div>
+        {!available && (
+          <p className="unavailable-note">
+            This session is unavailable. Captured output is preserved; replies
+            are disabled.
+          </p>
+        )}
+        {canReply && (
+          <form onSubmit={submit}>
+            <label htmlFor="reply">
+              {demo ? "Try a simulated follow-up" : "Send a follow-up"}
+            </label>
+            <div className="reply-box">
+              <input
+                id="reply"
+                aria-label="Reply to session"
+                value={reply}
+                maxLength={4000}
+                onChange={(e) => onReply(e.target.value)}
+                placeholder="e.g. Add a test for the timeout case"
+                autoComplete="off"
+                disabled={pending}
+              />
+              <button
+                className="primary-button"
+                disabled={pending || !reply.trim()}
+              >
+                {pending
+                  ? "Sending…"
+                  : demo
+                    ? "Simulate reply ↑"
+                    : "Send reply ↑"}
+              </button>
+            </div>
+            <p className="reply-hint">
+              {demo
+                ? "Runs only in your browser. Reset the demo to start again."
+                : "Enter to send · Single-line text · Delivery confirmed by iTerm2"}
+            </p>
+          </form>
+        )}
+        {available && session.status === "working" && (
+          <p className="working-note">
+            <i />
+            {demo
+              ? "This sample agent is working on its next step."
+              : "Agent is working. Its next update will appear here."}
+          </p>
+        )}
+        {available && session.status === "idle" && (
+          <p className="unavailable-note">
+            This session is idle. Open iTerm2 to begin a new turn.
+          </p>
         )}
       </div>
     </div>
