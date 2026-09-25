@@ -8,3 +8,7 @@ __pycache__
 .monitor.pid
 .monitor.log
 .gstack/
+.agent-queue/
+.pytest_cache/
+test-results/
+playwright-report/

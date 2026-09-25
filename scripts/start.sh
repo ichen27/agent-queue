@@ -1,45 +1,41 @@
-#!/bin/bash
-# scripts/start.sh — Start the Claude Code Command Center
-set -e
-
+#!/usr/bin/env bash
+# Foreground lifecycle: only processes started by this invocation are stopped.
+set -euo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SERVER_PIDFILE="$DIR/.server.pid"
-MONITOR_PIDFILE="$DIR/.monitor.pid"
-
-echo "=== Claude Code Command Center ==="
-
-# 1. Build dashboard if needed
-if [ ! -d "$DIR/dashboard/dist" ]; then
-  echo "[build] Building dashboard..."
-  cd "$DIR/dashboard" && bun run build
-fi
-
-# 2. Start FastAPI server
-echo "[server] Starting backend on http://localhost:7890 ..."
 cd "$DIR"
-source .venv/bin/activate
-uvicorn server.main:app --host 127.0.0.1 --port 7890 &
-echo $! > "$SERVER_PIDFILE"
-echo "[server] PID: $(cat "$SERVER_PIDFILE")"
-
-# 3. Wait for server to be ready
-echo "[server] Waiting for backend..."
-for i in $(seq 1 10); do
-  if curl -s http://localhost:7890/api/sessions > /dev/null 2>&1; then
-    echo "[server] Ready."
+if [ ! -x .venv/bin/python ] || [ ! -f dashboard/dist/index.html ]; then
+  echo "Run the setup steps in README.md first." >&2
+  exit 1
+fi
+export AGENT_QUEUE_STATE="${AGENT_QUEUE_STATE:-$DIR/.agent-queue/state.json}"
+export AGENT_QUEUE_MONITOR_URL="ws://127.0.0.1:7890/ws/monitor"
+# Refuse an occupied port before launching either process.
+.venv/bin/python -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 7890)); s.close()'
+server_pid=""
+monitor_pid=""
+cleanup() {
+  [ -z "$monitor_pid" ] || kill "$monitor_pid" 2>/dev/null || true
+  [ -z "$server_pid" ] || kill "$server_pid" 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+.venv/bin/python -m uvicorn server.main:app --host 127.0.0.1 --port 7890 &
+server_pid=$!
+ready=0
+for attempt in {1..30}; do
+  kill -0 "$server_pid" 2>/dev/null || { echo "Backend failed to start." >&2; exit 1; }
+  if .venv/bin/python -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:7890/api/health", timeout=1)' >/dev/null 2>&1; then
+    ready=1
     break
   fi
-  sleep 0.5
+  sleep 0.2
 done
-
-# 4. Start monitor as a background process (using our venv's Python)
-echo "[monitor] Starting iTerm2 monitor..."
-cd "$DIR"
-python3 monitor/claude_monitor.py > "$DIR/.monitor.log" 2>&1 &
-echo $! > "$MONITOR_PIDFILE"
-echo "[monitor] PID: $(cat "$MONITOR_PIDFILE")"
-
-echo ""
-echo "Dashboard: http://localhost:7890"
-echo "Monitor log: $DIR/.monitor.log"
-echo "To stop:     ./scripts/stop.sh"
+[ "$ready" -eq 1 ] || { echo "Backend did not become ready." >&2; exit 1; }
+kill -0 "$server_pid"
+.venv/bin/python monitor/claude_monitor.py &
+monitor_pid=$!
+echo "Agent Queue: http://127.0.0.1:7890 — Ctrl-C stops both processes."
+# Exit if either process dies instead of leaving an unnoticed half-running service.
+while kill -0 "$server_pid" 2>/dev/null && kill -0 "$monitor_pid" 2>/dev/null; do sleep 1; done
+exit 1

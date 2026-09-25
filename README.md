@@ -1,131 +1,124 @@
-# AI Coding Queue
+<div align="center">
 
-A localhost web dashboard that monitors multiple Claude Code sessions running in iTerm2 tabs. It queues notifications when sessions finish or need input, and lets you respond inline or jump directly to the tab.
+# Agent Queue
 
-Built for developers who run 10+ Claude Code sessions simultaneously and need a single place to manage them all.
+**An inbox for your coding agents.**
 
-## What It Does
+See which Claude Code sessions need you, read their output, and send the next step — from one local workspace.
 
-When you're running many Claude Code sessions across iTerm2 tabs, there's no way to know which ones have finished, which need input, or which are waiting for tool approval — without manually clicking through each tab. AI Coding Queue solves this by:
+[Try the demo](#try-it-without-iterm2) · [Run locally](#connect-your-iterm2-sessions) · [Architecture](docs/architecture.md) · [Contributing](CONTRIBUTING.md)
 
-- **Monitoring all iTerm2 tabs** for Claude Code activity in real-time
-- **Detecting session states** — finished responses, questions, permission prompts (Allow/Deny)
-- **Queuing notifications** in a web dashboard grouped by priority
-- **Letting you respond inline** — type replies directly from the dashboard
-- **Jumping to tabs** — one click to focus the iTerm2 tab for complex interactions
+</div>
 
-## Features
+![Agent Queue's simulated session inbox](docs/media/agent-queue-desktop.png)
 
-- **Real-time monitoring** — iTerm2 Python API polls all sessions every 2 seconds
-- **Smart state detection** — pattern matching for Claude Code prompts, permission requests, questions, and idle states
-- **Grouped dashboard** — sessions organized into "Needs Attention", "Working", and "Idle" sections
-- **Inline responses** — reply to Claude Code directly from the dashboard
-- **Quick actions** — one-click Allow/Deny for permission prompts
-- **Jump to tab** — instantly focus the relevant iTerm2 tab and window
-- **Expandable history** — view full session output without leaving the dashboard
-- **Browser notifications** — get notified when sessions need attention
-- **WebSocket live updates** — no polling, instant state changes
-- **Dark theme** — GitHub-dark inspired UI
+*Actual application screenshot in demo mode. Session names, terminal output, and verification lines are synthetic examples.*
 
-## Architecture
+## Keep the work moving
 
-```
-┌─────────────────┐     WebSocket      ┌─────────────────┐     WebSocket      ┌─────────────────┐
-│  iTerm2 Monitor  │ ──────────────────▶│  Backend Server  │◀────────────────▶ │  Web Dashboard   │
-│  (Python script) │                    │  (FastAPI)       │                    │  (React + Vite)  │
-│                  │                    │                  │                    │                  │
-│ Watches all      │                    │ Event queue      │                    │ Session cards    │
-│ sessions via     │                    │ Session state    │                    │ Inline replies   │
-│ iTerm2 API       │                    │ Command relay    │                    │ Quick actions    │
-└─────────────────┘                    └─────────────────┘                    └─────────────────┘
-```
+When several agents are running in separate tabs, checking each one becomes a task of its own. Agent Queue makes the handoff visible:
 
-## Tech Stack
+- **One inbox.** Search sessions and filter attention, active work, or unavailable terminals.
+- **Context before action.** Read a captured terminal excerpt and the latest detected prompt.
+- **Honest delivery.** A reply succeeds only when the monitor acknowledges that iTerm2 accepted it. Disconnections and uncertain outcomes stay visible.
+- **Reconnect with context.** Session snapshots survive backend restarts. Restored sessions remain unavailable until the monitor observes them again.
+- **Local by design.** No account, cloud relay, model API key, or external database.
 
-| Component | Technology |
-|-----------|-----------|
-| **Monitor** | Python 3 + [iterm2](https://iterm2.com/python-api/) Python API |
-| **Backend** | [FastAPI](https://fastapi.tiangolo.com/) + [uvicorn](https://www.uvicorn.org/) + WebSockets |
-| **Dashboard** | [React](https://react.dev/) + TypeScript + [Vite](https://vite.dev/) |
-| **Package Manager** | [Bun](https://bun.sh/) (frontend) |
-| **Database** | None — all in-memory |
+Live monitoring currently supports **Claude Code in iTerm2 on macOS**. It infers state from terminal text; it is not a Claude Code protocol integration or a general agent orchestration platform.
 
-## Prerequisites
+## Try it without iTerm2
 
-- **iTerm2** (macOS) with Python API enabled
-- **Python 3.10+**
-- **Bun** (for building the dashboard)
-- **Claude Code** sessions running in iTerm2 tabs
-
-## Getting Started
-
-### 1. Clone and install
+Requires Node.js **22.12+** (Node 24 recommended). This builds and serves a browser-only simulation; Python, macOS, API keys, and real agents are not required.
 
 ```bash
-git clone https://github.com/ichen27/ai-coding-queue.git
-cd ai-coding-queue
-
-# Python dependencies
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r server/requirements.txt
-pip install iterm2
-
-# Dashboard
-cd dashboard && bun install && bun run build && cd ..
+git clone https://github.com/ichen27/agent-queue.git
+cd agent-queue/dashboard
+npm ci
+npm run demo
 ```
 
-### 2. Start
+Open **[http://127.0.0.1:7891/?demo=1](http://127.0.0.1:7891/?demo=1)**.
+
+Select a session, filter the inbox, simulate a follow-up, or rename a sample session. **Reset demo** restores the examples. The persistent demo banner distinguishes simulated output from real activity. Demo mode opens no WebSockets, calls no backend APIs, and cannot send terminal commands.
+
+[Watch the captured demo walkthrough](docs/media/agent-queue-demo.webm) · [Mobile screenshot](docs/media/agent-queue-mobile.png)
+
+> This repository was previously named `ai-coding-queue`. Existing GitHub links redirect to `agent-queue` after the repository rename.
+
+## Connect your iTerm2 sessions
+
+Requirements: macOS, iTerm2 with its Python API enabled, Claude Code, Python **3.12+**, and Node **22.12+**.
+
+1. In iTerm2, enable **Settings → General → Magic → Enable Python API**. Allow the local Python script when iTerm2 asks.
+2. Install and build from the repository root:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r monitor/requirements.txt
+npm --prefix dashboard ci
+npm --prefix dashboard run build
+```
+
+3. Start the local backend and monitor:
 
 ```bash
 ./scripts/start.sh
 ```
 
-This will:
-- Start the FastAPI backend on `http://localhost:7890`
-- Register the monitor script with iTerm2's AutoLaunch
+Open **[http://127.0.0.1:7890](http://127.0.0.1:7890)**, then start Claude Code in your iTerm2 tabs. The monitor polls every two seconds. Press **Ctrl-C** in the launch terminal to stop the processes this script started. Nothing is installed into AutoLaunch or system services.
 
-### 3. Open the dashboard
+When a session is ready, review its current output and send a single-line follow-up. **Open in iTerm2** focuses the actual tab. Permission requests must be reviewed in the terminal; Agent Queue does not guess which approval key is safe.
 
-Navigate to **http://localhost:7890** in your browser.
+### Storage and connection behavior
 
-### 4. Stop
+The launch script saves bounded snapshots to `.agent-queue/state.json` with owner-only file permissions. This includes captured terminal output, which may contain sensitive project content. The directory is excluded from Git. Set `AGENT_QUEUE_STATE` to use another local path; without that variable, directly starting the backend uses memory only.
 
-```bash
-./scripts/stop.sh
+A session becomes unavailable when removed from the monitor inventory, when the monitor disconnects, or after 15 seconds without a fresh observation. Its last output remains readable. Reconnection refreshes session state; **commands are never retried automatically**.
+
+If delivery is reported as unknown, check the terminal before retrying. A terminal operation may have happened before its acknowledgement was lost.
+
+## How it fits together
+
+```mermaid
+flowchart LR
+  T["iTerm2 tabs"] -->|"screen excerpts"| M["Python monitor"]
+  M -->|"events + inventory"| S["FastAPI relay"]
+  S -->|"snapshot + updates"| U["React inbox"]
+  U -->|"validated command"| S
+  S -->|"command + expected screen"| M
+  M -->|"recheck, execute, acknowledge"| T
+  S --> F["Atomic local snapshot"]
 ```
 
-## How It Works
-
-1. The **iTerm2 monitor script** runs inside iTerm2's Python runtime and watches all sessions
-2. Every 2 seconds, it reads each session's terminal buffer and runs pattern detection
-3. When it detects a state change (Claude finished, needs input, permission prompt), it pushes an event to the backend via WebSocket
-4. The **FastAPI backend** maintains session state and a notification queue, broadcasting updates to connected dashboards
-5. The **React dashboard** displays sessions grouped by status with inline controls for responding
-6. When you type a response or click Allow/Deny, the command flows back through the backend to the monitor, which sends the text to the correct iTerm2 session
+The monitor detects screen patterns, the relay owns freshness and delivery, and the dashboard presents state. The demo replaces the live connection entirely with an in-browser adapter. [Read the decisions and protocol](docs/architecture.md).
 
 ## Development
 
-### Run in dev mode
-
 ```bash
-# Terminal 1: Backend
-source .venv/bin/activate
-uvicorn server.main:app --host 127.0.0.1 --port 7890 --reload
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m pytest tests -q
+npm --prefix dashboard run lint
+npm --prefix dashboard run build
 
-# Terminal 2: Dashboard (with hot reload)
-cd dashboard && bun dev
+cd dashboard
+npx playwright install chromium
+npm run test:e2e
 ```
 
-The Vite dev server on port 5173 proxies `/ws` and `/api` requests to the backend on port 7890.
+Python tests cover state detection, snapshot restoration, stale sessions, changed-screen rejection, acknowledged delivery, disconnects, origin checks, and real WebSocket flows. Browser tests cover desktop/mobile interactions and prove that demo interactions produce no backend or WebSocket traffic. CI runs Python 3.12/3.14 and the frontend/browser checks.
 
-### Run tests
+For frontend changes, `cd dashboard && npm run dev` serves Vite on port 5173; append `?demo=1` for simulated data. Its proxy connects live mode to a separately running backend on port 7890. See [CONTRIBUTING.md](CONTRIBUTING.md) for the local testing workflow.
 
-```bash
-source .venv/bin/activate
-python3 -m pytest tests/ -v
-```
+## Current boundaries
 
-## License
+- Screen parsing is heuristic and may need updates when Claude Code changes its terminal interface. Review the terminal when a state looks wrong.
+- Captures contain at most 200 terminal lines. They are excerpts, not a complete conversation archive.
+- Live text delivery requires an unchanged screen a current empty Claude prompt, and iTerm2 reporting the foreground job as `claude`. Unknown/wrapper names (including generic `node`) fail closed and require a manual reply. A UI that differs from recognized patterns may need a manual reply in iTerm2.
+- An acknowledgement means iTerm2 accepted an operation, not that the agent completed the request. A small race remains between reading the screen and typing.
+- One backend process and one monitor are supported. No hosted multi-user mode, remote auth, arbitrary shell execution, or automatic permission approval.
+- Keep the backend bound to loopback. Host/origin checks are not a substitute for authentication on a public deployment.
+- Restored state is capped at 100 sessions and 500 queue items. It does not persist pending commands.
 
-MIT
+See [troubleshooting and limitations](docs/operations.md) for recovery steps.
+
+MIT · Built by [Ivan Chen](https://github.com/ichen27)
