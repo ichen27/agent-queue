@@ -104,8 +104,10 @@ async def deliver_command(command: Command):
     pending_commands[command.command_id] = future
     busy_sessions.add(command.session_id)
     try:
-        await monitor_ws.send_json({**command.model_dump(), "expected_output": state.get_full_output(command.session_id)})
-        ack = await asyncio.wait_for(future, COMMAND_TIMEOUT)
+        # Sending can stall too; bound the whole delivery attempt, not just the ack.
+        async with asyncio.timeout(COMMAND_TIMEOUT):
+            await monitor_ws.send_json({**command.model_dump(), "expected_output": state.get_full_output(command.session_id)})
+            ack = await future
         if ack.get("ok") is not True:
             return {**result, "error": ack.get("error", "Monitor could not deliver command"), "code": 409}
         if command.command == "send_text":
