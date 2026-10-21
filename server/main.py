@@ -160,8 +160,13 @@ async def monitor_websocket(ws: WebSocket):
                         await broadcast_to_dashboards(snapshot())
                 else:
                     event = MonitorEvent(**data)
+                    previous_ids = set(state.sessions)
                     item = state.process_event(event)
+                    removed_sessions = previous_ids - state.sessions.keys()
                     await broadcast_to_dashboards({"type": "event", "event": event.model_dump(), "session": state.sessions[event.session_id].model_dump(), "queue_item": item.model_dump() if item else None})
+                    if removed_sessions:
+                        # Events only upsert; a snapshot removes evicted sessions and queue items.
+                        await broadcast_to_dashboards(snapshot())
             except (ValidationError, ValueError, TypeError):
                 await ws.send_json({"type": "error", "error": "Invalid monitor message"})
     except (WebSocketDisconnect, json.JSONDecodeError):

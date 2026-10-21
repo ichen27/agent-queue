@@ -147,3 +147,18 @@ def test_non_object_monitor_message_is_rejected_without_losing_connection():
             await asyncio.sleep(.05)
             assert server.state.sessions["s1"].available
     asyncio.run(scenario())
+
+def test_eviction_updates_connected_dashboard_without_reconnect(monkeypatch):
+    import server.state as state_module
+    monkeypatch.setattr(state_module, "MAX_SESSIONS", 2)
+    async def scenario():
+        async with websockets.connect(BASE + "/ws/dashboard") as dash, websockets.connect(BASE + "/ws/monitor") as mon:
+            await receive(dash, "snapshot")
+            for i in range(3):
+                await mon.send(json.dumps({"session_id": f"s{i}", "tab_name": "tab", "event_type": "ready"}))
+                message = await receive(dash, "event")
+                assert message["session"]["session_id"] == f"s{i}"
+            snap = await receive(dash, "snapshot")
+            assert set(snap["sessions"]) == {"s1", "s2"}
+            assert {q["session_id"] for q in snap["queue"]} == {"s1", "s2"}
+    asyncio.run(scenario())
