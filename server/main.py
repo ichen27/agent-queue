@@ -59,7 +59,10 @@ def origin_allowed(headers):
     origin = headers.get("origin")
     if not origin:  # Local CLI/monitor clients do not send a browser Origin.
         return True
-    parsed = urlsplit(origin)
+    try:
+        parsed = urlsplit(origin)
+    except ValueError:
+        return False
     return parsed.scheme in ("http", "https") and parsed.netloc == headers.get("host")
 
 
