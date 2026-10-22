@@ -28,7 +28,7 @@ A corrupted snapshot is preserved and startup fails with its path. Inspect or mo
 
 ## Data limits and deployment
 
-The monitor reads the latest 200 terminal lines, bounded to 100,000 characters per event. The relay keeps 100 recent sessions and 500 queue items. The oldest records can be evicted. Snapshot write failures surface as server errors; make sure the local disk is writable.
+The monitor reads the latest 200 terminal lines, bounded to 100,000 characters per event. The relay keeps 100 recent sessions and 500 queue items. These limits also apply when restoring a snapshot: the most recently observed sessions and newest retained queue items are kept, and history for missing sessions is discarded in memory. Loading does not rewrite the original snapshot; the next state update saves the bounded state. Snapshot write failures surface as server errors; make sure the local disk is writable.
 
 Use one backend process. Multiple Uvicorn workers would split monitor connections and in-memory state, and they would race writing the snapshot. Keep the server on loopback; there is no remote authentication or multi-user authorization.
 
