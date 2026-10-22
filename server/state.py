@@ -4,11 +4,19 @@ import os
 import tempfile
 import time
 from pathlib import Path
+from pydantic import BaseModel, Field
 from server.models import SessionState, QueueItem, MonitorEvent
 
 MAX_SESSIONS = 100
 MAX_QUEUE_ITEMS = 500
 STALE_AFTER = 15
+
+
+class _Snapshot(BaseModel):
+    version: int = Field(strict=True)
+    sessions: dict[str, SessionState]
+    queue: list[QueueItem]
+    full_outputs: dict[str, str] = Field(default_factory=dict)
 
 
 class StateManager:
@@ -19,15 +27,18 @@ class StateManager:
         self.full_outputs: dict[str, str] = {}
         if path and path.exists():
             try:
-                data = json.loads(path.read_text())
-                if data.get("version") != 1:
+                data = _Snapshot.model_validate(json.loads(path.read_text()))
+                if data.version != 1:
                     raise ValueError("Unsupported version")
-                self.sessions = {sid: SessionState(**s) for sid, s in data["sessions"].items()}
-                self.queue = [QueueItem(**q) for q in data["queue"]]
-                self.full_outputs = data.get("full_outputs", {})
+                if any(sid != session.session_id for sid, session in data.sessions.items()):
+                    raise ValueError("Session key does not match its ID")
+                self.sessions = data.sessions
+                self.queue = data.queue
+                self.full_outputs = data.full_outputs
+                self._trim()
                 for session in self.sessions.values():
                     session.available = False
-            except (ValueError, KeyError, TypeError) as exc:
+            except ValueError as exc:
                 raise ValueError(f"Cannot read snapshot {path}; preserve or move it before restarting") from exc
 
     def save(self):
@@ -66,14 +77,16 @@ class StateManager:
             else:
                 item = QueueItem(session_id=sid, event_type=event.event_type, tail_output=event.tail_output)
                 self.queue.append(item)
-        self.queue = self.queue[-MAX_QUEUE_ITEMS:]
-        while len(self.sessions) > MAX_SESSIONS:
-            oldest = min(self.sessions, key=lambda key: self.sessions[key].last_seen)
-            del self.sessions[oldest]
-            self.full_outputs.pop(oldest, None)
-            self.queue = [q for q in self.queue if q.session_id != oldest]
+        self._trim()
         self.save()
         return item
+
+    def _trim(self):
+        if len(self.sessions) > MAX_SESSIONS:
+            recent = sorted(self.sessions, key=lambda sid: self.sessions[sid].last_seen)[-MAX_SESSIONS:]
+            self.sessions = {sid: self.sessions[sid] for sid in recent}
+        self.queue = [q for q in self.queue if q.session_id in self.sessions][-MAX_QUEUE_ITEMS:]
+        self.full_outputs = {sid: output for sid, output in self.full_outputs.items() if sid in self.sessions}
 
     def reconcile(self, active_ids: list[str]):
         now = time.time()
