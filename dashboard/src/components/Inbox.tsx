@@ -369,7 +369,10 @@ function DetailPane({
             title="Rename session"
             aria-label="Rename session"
             disabled={!available || pending}
-            onClick={() => setRenaming(!renaming)}
+            onClick={() => {
+              if (!renaming) setName(session.tab_name);
+              setRenaming(!renaming);
+            }}
           >
             ✎
           </button>
