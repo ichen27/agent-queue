@@ -13,8 +13,8 @@ class SessionState(BaseModel):
     status: Status = "working"
     tail_output: str = ""
     summary: str = ""
-    last_event_time: float = Field(default_factory=time.time)
-    last_seen: float = Field(default_factory=time.time)
+    last_event_time: float = Field(default_factory=time.time, allow_inf_nan=False)
+    last_seen: float = Field(default_factory=time.time, allow_inf_nan=False)
     available: bool = False
     revision: int = 0
 
@@ -25,7 +25,7 @@ class QueueItem(BaseModel):
     event_type: str
     tail_output: str
     status: Literal["pending", "seen", "resolved"] = "pending"
-    created_at: float = Field(default_factory=time.time)
+    created_at: float = Field(default_factory=time.time, allow_inf_nan=False)
 
 
 class MonitorEvent(BaseModel):
