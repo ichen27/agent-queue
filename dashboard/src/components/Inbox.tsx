@@ -46,7 +46,7 @@ export function Inbox({
 }: Props) {
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, { text: string }>>({});
   const [notifications, setNotifications] = useState("");
   const all = Object.values(sessions);
   const attention = all.filter(needsAttention).length;
@@ -262,12 +262,20 @@ export function Inbox({
                 demo={demo}
                 onCommand={onCommand}
                 onBack={() => onSelect(null)}
-                reply={drafts[selected.session_id] ?? ""}
+                reply={drafts[selected.session_id]?.text ?? ""}
                 onReply={(text) =>
                   setDrafts((current) => ({
                     ...current,
-                    [selected.session_id]: text,
+                    [selected.session_id]: { text },
                   }))
+                }
+                onReplySent={() =>
+                  setDrafts((current) =>
+                    // A late acknowledgement must not erase edits made after sending.
+                    current[selected.session_id] === drafts[selected.session_id]
+                      ? { ...current, [selected.session_id]: { text: "" } }
+                      : current,
+                  )
                 }
               />
             ) : (
@@ -314,6 +322,7 @@ function DetailPane({
   onBack,
   reply,
   onReply,
+  onReplySent,
 }: {
   session: SessionState;
   live: boolean;
@@ -322,6 +331,7 @@ function DetailPane({
   onBack: () => void;
   reply: string;
   onReply: (text: string) => void;
+  onReplySent: () => void;
 }) {
   const [result, setResult] = useState<CommandResult | null>(null);
   const [pending, setPending] = useState(false);
@@ -344,7 +354,7 @@ function DetailPane({
     });
     setResult(outcome);
     setPending(false);
-    if (outcome.ok && kind === "send_text") onReply("");
+    if (outcome.ok && kind === "send_text") onReplySent();
     if (outcome.ok && kind === "rename_tab") setRenaming(false);
   }
   function submit(e: FormEvent) {
