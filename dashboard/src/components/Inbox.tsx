@@ -392,17 +392,19 @@ function DetailPane({
             className="rename-form"
             onSubmit={(e) => {
               e.preventDefault();
-              void command("rename_tab", { name });
+              if (available && !pending && name.trim())
+                void command("rename_tab", { name });
             }}
           >
             <input
+              disabled={!available || pending}
               aria-label="Session name"
               value={name}
               maxLength={100}
               onChange={(e) => setName(e.target.value)}
               autoFocus
             />
-            <button disabled={pending || !name.trim()}>Save</button>
+            <button disabled={!available || pending || !name.trim()}>Save</button>
             <button type="button" onClick={() => setRenaming(false)}>
               Cancel
             </button>
