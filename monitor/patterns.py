@@ -177,7 +177,7 @@ def extract_last_prompt(text: str) -> str:
         m = _PROMPT_RE.search(line.strip())
         if m:
             prompt = m.group(1).strip()
-            if prompt and len(prompt) > 1:
+            if prompt:
                 # Truncate long prompts
                 if len(prompt) > 80:
                     return prompt[:77] + "..."

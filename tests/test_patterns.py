@@ -55,3 +55,15 @@ def test_extracts_tail_output():
     assert tail.startswith("line 50")
     assert tail.endswith("line 99")
     assert len(tail.split("\n")) == 50
+
+
+def test_last_prompt_keeps_single_character_reply():
+    from monitor.patterns import extract_last_prompt
+
+    assert extract_last_prompt("❯ Previous request\n❯ y\n❯ ") == "y"
+
+
+def test_last_prompt_keeps_single_character_unicode_reply():
+    from monitor.patterns import extract_last_prompt
+
+    assert extract_last_prompt("❯ Previous request\n❯ 好\n❯ ") == "好"
