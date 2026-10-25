@@ -56,3 +56,14 @@ def test_stale_claude_signature_and_shell_arrow_never_receive_text(job):
     output = "[Claude 4.0]\nExited Claude.\n❯ "
     with pytest.raises(ValueError, match="foreground"):
         run_command(output=output, expected=output, job=job)
+
+@pytest.mark.parametrize("draft", ["unfinished reply", "y", "❯ nested prompt"])
+def test_monitor_rejects_populated_prompt_below_old_empty_prompt(draft):
+    output = f"[Claude 4.0]\n❯ \n❯ {draft}\nContext ███░ 50%"
+    with pytest.raises(ValueError, match="not waiting"):
+        run_command(output=output, expected=output)
+
+
+def test_monitor_accepts_current_empty_prompt_after_old_populated_prompt():
+    output = "[Claude 4.0]\n❯ Previous request\nDone.\n❯ \nContext ███░ 50%"
+    assert run_command(output=output, expected=output) == ["Add tests\r"]
