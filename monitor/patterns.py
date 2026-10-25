@@ -195,8 +195,10 @@ def has_reply_prompt(output: str) -> bool:
     lines = clean_output(output).splitlines()[-8:]
     for line in reversed(lines):
         value = line.strip()
-        if re.fullmatch(r"❯\s*", value):
-            return True
+        if value.startswith("❯"):
+            # The newest prompt owns the input buffer. A populated prompt must
+            # not be skipped as chrome in favor of an older empty prompt.
+            return re.fullmatch(r"❯\s*", value) is not None
         if value and not _is_chrome_line(value):
             return False
     return False
