@@ -86,12 +86,14 @@ async def accept_local(ws):
 
 async def deliver_command(command: Command):
     result = {"type": "command_result", "command_id": command.command_id, "session_id": command.session_id, "ok": False}
+    if state.expire():
+        await broadcast_to_dashboards(snapshot())
+    # Broadcasting yields: read the current session and monitor afterwards.
     session = state.sessions.get(command.session_id)
     if not session:
         return {**result, "error": "Session not found", "code": 404}
     if monitor_ws is None:
         return {**result, "error": "Monitor disconnected. Nothing was sent.", "code": 503}
-    state.expire()
     if not session.available:
         return {**result, "error": "Session is unavailable. Wait for a fresh monitor update.", "code": 409}
     if command.command_id in pending_commands:
