@@ -48,6 +48,22 @@ export function Inbox({
   const [search, setSearch] = useState("");
   const [drafts, setDrafts] = useState<Record<string, { text: string }>>({});
   const [notifications, setNotifications] = useState("");
+  const [commandStates, setCommandStates] = useState<
+    Record<string, { pending: boolean; result: CommandResult | null }>
+  >({});
+  async function trackCommand(command: Command) {
+    const id = command.session_id;
+    setCommandStates((current) => ({
+      ...current,
+      [id]: { pending: true, result: null },
+    }));
+    const result = await onCommand(command);
+    setCommandStates((current) => ({
+      ...current,
+      [id]: { pending: false, result },
+    }));
+    return result;
+  }
   const all = Object.values(sessions);
   const attention = all.filter(needsAttention).length;
   const working = all.filter(
@@ -260,7 +276,9 @@ export function Inbox({
                 session={selected}
                 live={live}
                 demo={demo}
-                onCommand={onCommand}
+                onCommand={trackCommand}
+                pending={commandStates[selected.session_id]?.pending ?? false}
+                result={commandStates[selected.session_id]?.result ?? null}
                 onBack={() => onSelect(null)}
                 reply={drafts[selected.session_id]?.text ?? ""}
                 onReply={(text) =>
@@ -323,6 +341,8 @@ function DetailPane({
   reply,
   onReply,
   onReplySent,
+  pending,
+  result,
 }: {
   session: SessionState;
   live: boolean;
@@ -332,9 +352,9 @@ function DetailPane({
   reply: string;
   onReply: (text: string) => void;
   onReplySent: () => void;
+  pending: boolean;
+  result: CommandResult | null;
 }) {
-  const [result, setResult] = useState<CommandResult | null>(null);
-  const [pending, setPending] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(session.tab_name);
   const available = live && session.available;
@@ -344,16 +364,12 @@ function DetailPane({
     kind: Command["command"],
     payload: Record<string, string>,
   ) {
-    setPending(true);
-    setResult(null);
     const outcome = await onCommand({
       command: kind,
       session_id: session.session_id,
       expected_revision: session.revision,
       payload,
     });
-    setResult(outcome);
-    setPending(false);
     if (outcome.ok && kind === "send_text") onReplySent();
     if (outcome.ok && kind === "rename_tab") setRenaming(false);
   }
@@ -477,7 +493,6 @@ function DetailPane({
                 onChange={(e) => onReply(e.target.value)}
                 placeholder="e.g. Add a test for the timeout case"
                 autoComplete="off"
-                disabled={pending}
               />
               <button
                 className="primary-button"
