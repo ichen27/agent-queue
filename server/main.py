@@ -143,8 +143,8 @@ async def monitor_websocket(ws: WebSocket):
         await ws.close(code=1008, reason="Only one monitor may connect")
         return
     monitor_ws = ws
-    await broadcast_to_dashboards(snapshot())
     try:
+        await broadcast_to_dashboards(snapshot())
         while True:
             data = await ws.receive_json()
             try:
@@ -188,8 +188,8 @@ async def dashboard_websocket(ws: WebSocket):
     if not await accept_local(ws):
         return
     dashboard_clients.append(ws)
-    await ws.send_json(snapshot())
     try:
+        await ws.send_json(snapshot())
         while True:
             data = await ws.receive_json()
             try:
