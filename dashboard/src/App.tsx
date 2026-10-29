@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { Inbox } from "./components/Inbox";
 import { DEMO, demoSessions, simulateCommand } from "./demo";
@@ -13,6 +13,7 @@ export default function App() {
   );
   const [monitorConnected, setMonitorConnected] = useState(false);
   const [resetKey, setResetKey] = useState(0);
+  const demoGeneration = useRef(0);
   const handleMessage = useCallback((message: ServerMessage) => {
     if (message.type === "snapshot") {
       setSessions(message.sessions);
@@ -37,7 +38,10 @@ export default function App() {
   const handleCommand = useCallback(
     async (command: Command) => {
       if (!DEMO) return sendCommand(command);
+      const generation = demoGeneration.current;
       const result = await simulateCommand(command);
+      // Reset discards updates from simulations that were already in flight.
+      if (generation !== demoGeneration.current) return result;
       if (command.command === "send_text" || command.command === "rename_tab") {
         setSessions((previous) => {
           const session = previous[command.session_id];
@@ -61,9 +65,10 @@ export default function App() {
     [sendCommand],
   );
   function resetDemo() {
+    demoGeneration.current += 1;
     setSessions(demoSessions());
     setSelectedId("retry-policy");
-    setResetKey((key) => key + 1);
+    setResetKey(demoGeneration.current);
   }
   return (
     <Inbox
