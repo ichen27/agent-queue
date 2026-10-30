@@ -102,8 +102,8 @@ def _is_chrome_line(line: str) -> bool:
     return False
 
 
-# ANSI escape code pattern
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[.*?[@-~]")
+# ANSI escape codes, including OSC hyperlinks/titles ending in BEL or ST.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)|\x1b\[.*?[@-~]")
 # Control characters (except newline, tab, and null which we handle separately)
 _CTRL_RE = re.compile(r"[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
