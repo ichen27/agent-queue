@@ -172,9 +172,9 @@ def extract_last_prompt(text: str) -> str:
     """Find the last user prompt (text after ❯) in terminal output."""
     cleaned = clean_output(text)
     lines = cleaned.split("\n")
-    # Walk backwards to find the last ❯ line with actual text
+    # Only a leading marker identifies a prompt; output can mention ❯ inline.
     for line in reversed(lines):
-        m = _PROMPT_RE.search(line.strip())
+        m = _PROMPT_RE.match(line.strip())
         if m:
             prompt = m.group(1).strip()
             if prompt:
