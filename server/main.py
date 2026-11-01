@@ -46,9 +46,11 @@ async def expire_sessions():
 @asynccontextmanager
 async def lifespan(app):
     task = asyncio.create_task(expire_sessions())
-    yield
-    task.cancel()
-    await asyncio.gather(task, return_exceptions=True)
+    try:
+        yield
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 app = FastAPI(title="Agent Queue", lifespan=lifespan)
