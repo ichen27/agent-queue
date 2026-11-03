@@ -77,13 +77,18 @@ class StateManager:
             else:
                 item = QueueItem(session_id=sid, event_type=event.event_type, tail_output=event.tail_output)
                 self.queue.append(item)
-        self._trim()
+        self._trim(keep_sid=sid)
         self.save()
         return item
 
-    def _trim(self):
+    def _trim(self, keep_sid: str | None = None):
         if len(self.sessions) > MAX_SESSIONS:
-            recent = sorted(self.sessions, key=lambda sid: self.sessions[sid].last_seen)[-MAX_SESSIONS:]
+            # Keep the observation being processed even after a clock rollback.
+            # The relay needs it immediately to broadcast the incoming event.
+            recent = sorted(
+                self.sessions,
+                key=lambda sid: (sid == keep_sid, self.sessions[sid].last_seen),
+            )[-MAX_SESSIONS:]
             self.sessions = {sid: self.sessions[sid] for sid in recent}
         self.queue = [q for q in self.queue if q.session_id in self.sessions][-MAX_QUEUE_ITEMS:]
         self.full_outputs = {sid: output for sid, output in self.full_outputs.items() if sid in self.sessions}
