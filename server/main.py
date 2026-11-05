@@ -118,7 +118,8 @@ async def deliver_command(command: Command):
         if ack.get("ok") is not True:
             return {**result, "error": ack.get("error", "Monitor could not deliver command"), "code": 409}
         if command.command == "send_text":
-            state.resolve_session(command.session_id)
+            # Invalidate acknowledged state before any fallible disk write.
+            state.resolve_session(command.session_id, save=False)
             # Invalidate this screen revision before another browser can reuse it.
             # process_event replaces objects while we await the monitor. Invalidate
             # the current record, not the pre-await reference.
