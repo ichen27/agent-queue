@@ -109,8 +109,10 @@ class StateManager:
 
     def expire(self):
         changed = False
+        now = time.time()
         for session in self.sessions.values():
-            if session.available and time.time() - session.last_seen > STALE_AFTER:
+            # A receipt from before a clock rollback no longer proves freshness.
+            if session.available and not 0 <= now - session.last_seen <= STALE_AFTER:
                 session.available = False
                 changed = True
         if changed:
