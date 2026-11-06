@@ -120,12 +120,16 @@ test("rename is simulated and drafts stay attached to their session", async ({
 test("live adapter preserves a rejected draft and restores a reconnect snapshot", async ({ page }) => {
   let connections = 0;
   let deliveries = 0;
+  let disconnect: () => void = () => { throw new Error("No WebSocket connected"); };
   await page.routeWebSocket("**/ws/dashboard", (socket) => {
     connections++;
+    if (connections === 1) {
+      disconnect = () => socket.close({ code: 1001, reason: "Synthetic disconnect" });
+    }
     socket.send(JSON.stringify({
       type: "snapshot", monitor_connected: true, queue: [],
       sessions: { live: { session_id: "live", tab_name: "Live adapter fixture", status: "ready",
-        summary: "Synthetic transport fixture", tail_output: "Ready", last_event_time: 1,
+        summary: `Synthetic transport fixture ${connections}`, tail_output: "Ready", last_event_time: 1,
         last_seen: 1, available: true, revision: connections } },
     }));
     socket.onMessage((raw) => {
@@ -134,16 +138,17 @@ test("live adapter preserves a rejected draft and restores a reconnect snapshot"
       expect(command.expected_revision).toBe(1);
       socket.send(JSON.stringify({ type: "command_result", command_id: command.command_id,
         session_id: "live", ok: false, error: "Session changed. Review its latest output before sending." }));
-      setTimeout(() => socket.close({ code: 1001, reason: "Synthetic disconnect" }), 200);
     });
   });
   await page.goto("/");
   await page.getByRole("button", { name: /Live adapter fixture/ }).click();
   await page.getByRole("textbox", { name: "Reply to session" }).fill("Keep this draft");
   await page.getByRole("button", { name: "Send reply" }).click();
-  await expect(page.getByRole("status")).toContainText("Session changed");
+  await expect(page.locator(".command-result")).toContainText("Session changed");
   await expect(page.getByRole("textbox", { name: "Reply to session" })).toHaveValue("Keep this draft");
+  disconnect();
   await expect.poll(() => connections).toBeGreaterThan(1);
+  await expect(page.locator(".detail-summary")).toHaveText("Synthetic transport fixture 2");
   await expect(page.getByRole("textbox", { name: "Reply to session" })).toHaveValue("Keep this draft");
   expect(deliveries).toBe(1);
 });
