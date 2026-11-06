@@ -91,7 +91,7 @@ _CHROME_PATTERNS = [
     re.compile(r"^\s*⏵⏵\s*bypass permissions"),              # permission mode
     re.compile(r"^\s*✻"),                                     # timing decorator
     re.compile(r"^\s*(Worked|Baked|Sautéed|Brewed) for \d"),  # timing line
-    re.compile(r"new task\?", re.IGNORECASE),                 # new task prompt
+    re.compile(r"^\s*new task\?\s*$", re.IGNORECASE),                 # new task prompt
 ]
 
 
