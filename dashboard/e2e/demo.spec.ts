@@ -120,7 +120,7 @@ test("rename is simulated and drafts stay attached to their session", async ({
 test("live adapter preserves a rejected draft and restores a reconnect snapshot", async ({ page }) => {
   let connections = 0;
   let deliveries = 0;
-  let disconnect = () => { throw new Error("No WebSocket connected"); };
+  let disconnect: () => void = () => { throw new Error("No WebSocket connected"); };
   await page.routeWebSocket("**/ws/dashboard", (socket) => {
     connections++;
     if (connections === 1) {
