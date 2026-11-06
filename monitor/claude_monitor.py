@@ -125,7 +125,7 @@ async def poll_sessions(ws, app):
                             stripped = strip_chrome(cleaned)
                             event = {
                                 "session_id": sid,
-                                "tab_name": str(tab_name),
+                                "tab_name": str(tab_name)[:200],
                                 "event_type": state,
                                 "tail_output": stripped,
                                 "summary": extract_last_prompt(full_text),
