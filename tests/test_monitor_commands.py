@@ -67,3 +67,14 @@ def test_monitor_rejects_populated_prompt_below_old_empty_prompt(draft):
 def test_monitor_accepts_current_empty_prompt_after_old_populated_prompt():
     output = "[Claude 4.0]\n❯ Previous request\nDone.\n❯ \nContext ███░ 50%"
     assert run_command(output=output, expected=output) == ["Add tests\r"]
+
+
+@pytest.mark.parametrize("line", [
+    "Would you like a new task? Review the current changes first.",
+    'print("new task?")',
+    "new task? Keep this explanation visible.",
+])
+def test_monitor_does_not_skip_new_task_prose_after_an_old_prompt(line):
+    output = f"[Claude 4.0]\n❯ \n{line}"
+    with pytest.raises(ValueError, match="not waiting"):
+        run_command(output=output, expected=output)
