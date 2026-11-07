@@ -85,7 +85,9 @@ async def poll_sessions(ws, app):
     while True:
         try:
             now = time.time()
-            refresh = now - last_refresh >= 10
+            # Clock corrections must not delay periodic observations.
+            refresh_time = time.monotonic()
+            refresh = refresh_time - last_refresh >= 10
             active_ids = []
 
             for window in app.terminal_windows:
@@ -144,7 +146,7 @@ async def poll_sessions(ws, app):
                 for sid in set(cache) - set(active_ids):
                     cache.pop(sid, None)
             if refresh:
-                last_refresh = now
+                last_refresh = refresh_time
         except websockets.ConnectionClosed:
             return
         except Exception as e:
