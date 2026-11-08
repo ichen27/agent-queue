@@ -11,9 +11,9 @@ import pytest
 from server.models import MonitorEvent
 
 
-@pytest.mark.parametrize("title", ["Example", "x" * 200, "x" * 201, "界" * 201, None],
-                         ids=["short", "limit", "long_ascii", "long_unicode", "fallback"])
-def test_monitor_emits_valid_event_for_long_native_tab_title(monkeypatch, title):
+@pytest.mark.parametrize("title", ["Example", "x" * 200, "x" * 201, "界" * 201, None, RuntimeError("lookup failed")],
+                         ids=["short", "limit", "long_ascii", "long_unicode", "fallback", "lookup_failure"])
+def test_monitor_emits_valid_events_despite_native_tab_title_limits_or_failure(monkeypatch, title):
     # Polling does not need the optional macOS SDK; substitute only its import.
     monkeypatch.setitem(sys.modules, "iterm2", ModuleType("iterm2"))
     monkeypatch.setattr(sys, "path", sys.path.copy())
@@ -30,13 +30,22 @@ def test_monitor_emits_valid_event_for_long_native_tab_title(monkeypatch, title)
 
     async def get_variable(name):
         assert name == "titleOverride"
+        if isinstance(title, Exception):
+            raise title
         return title
 
     tab = SimpleNamespace(
         tab_id="fallback-tab", async_get_variable=get_variable,
         sessions=[SimpleNamespace(session_id="s")],
     )
-    app = SimpleNamespace(terminal_windows=[SimpleNamespace(tabs=[tab])])
+    async def get_next_title(name):
+        return "Next tab"
+
+    next_tab = SimpleNamespace(
+        tab_id="next-tab", async_get_variable=get_next_title,
+        sessions=[SimpleNamespace(session_id="next")],
+    )
+    app = SimpleNamespace(terminal_windows=[SimpleNamespace(tabs=[tab, next_tab])])
     monkeypatch.setattr(monitor, "read_session_contents", read_contents)
 
     class Connection:
@@ -51,10 +60,14 @@ def test_monitor_emits_valid_event_for_long_native_tab_title(monkeypatch, title)
             await asyncio.wait_for(monitor.poll_sessions(Connection(), app), 1)
 
     asyncio.run(scenario())
-    assert len(messages) == 2
+    assert len(messages) == 3
     event = MonitorEvent.model_validate(messages[0])
     assert event.session_id == "s"
-    assert event.tab_name == (title or "fallback-tab")[:200]
+    assert event.tab_name == (title if isinstance(title, str) else "fallback-tab")[:200]
     assert event.full_output == output
     assert event.event_type == "working"
-    assert messages[1] == {"type": "inventory", "session_ids": ["s"]}
+    next_event = MonitorEvent.model_validate(messages[1])
+    assert next_event.session_id == "next"
+    assert next_event.tab_name == "Next tab"
+    assert next_event.full_output == output
+    assert messages[2] == {"type": "inventory", "session_ids": ["s", "next"]}

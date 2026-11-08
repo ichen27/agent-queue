@@ -92,7 +92,11 @@ async def poll_sessions(ws, app):
 
             for window in app.terminal_windows:
                 for tab in window.tabs:
-                    tab_name = await tab.async_get_variable("titleOverride") or tab.tab_id
+                    try:
+                        tab_name = await tab.async_get_variable("titleOverride") or tab.tab_id
+                    except Exception:
+                        # Display metadata must not block observations from other tabs.
+                        tab_name = tab.tab_id
                     for session in tab.sessions:
                         sid = session.session_id
 
