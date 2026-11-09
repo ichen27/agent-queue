@@ -175,18 +175,21 @@ async def main(connection):
         poll_task = asyncio.create_task(poll_sessions(ws, app))
         cmd_task = asyncio.create_task(handle_commands(ws, app))
 
-        done, pending = await asyncio.wait(
-            [poll_task, cmd_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*done, *pending, return_exceptions=True)
-
         try:
-            await ws.close()
-        except Exception:
-            pass
+            await asyncio.wait(
+                [poll_task, cmd_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            # Parent cancellation must also stop workers before closing their socket.
+            for task in (poll_task, cmd_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(poll_task, cmd_task, return_exceptions=True)
+            try:
+                await ws.close()
+            except Exception:
+                pass
 
         print("[monitor] Reconnecting in 3s...")
         await asyncio.sleep(3)
