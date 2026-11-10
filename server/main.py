@@ -179,11 +179,14 @@ async def monitor_websocket(ws: WebSocket):
     finally:
         if monitor_ws is ws:
             monitor_ws = None
-            state.reconcile([])
-            for future in list(pending_commands.values()):
-                if not future.done():
-                    future.set_exception(ConnectionError("Monitor disconnected"))
-            await broadcast_to_dashboards(snapshot())
+            try:
+                state.reconcile([])
+            finally:
+                # A failed snapshot write must not suppress disconnect notifications.
+                for future in list(pending_commands.values()):
+                    if not future.done():
+                        future.set_exception(ConnectionError("Monitor disconnected"))
+                await broadcast_to_dashboards(snapshot())
 
 
 @app.websocket("/ws/dashboard")
