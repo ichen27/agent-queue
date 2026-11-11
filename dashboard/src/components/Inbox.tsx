@@ -79,7 +79,7 @@ export function Inbox({
         (filter === "unavailable" && !s.available),
     )
     .filter((s) =>
-      `${s.tab_name} ${s.summary}`.toLowerCase().includes(search.toLowerCase()),
+      `${s.tab_name || s.session_id} ${s.summary}`.toLowerCase().includes(search.toLowerCase()),
     )
     .sort(
       (a, b) =>
