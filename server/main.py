@@ -1,6 +1,7 @@
 """Single-process localhost relay. Terminal side effects require monitor acknowledgement."""
 import asyncio
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -39,7 +40,13 @@ async def broadcast_to_dashboards(message: dict):
 async def expire_sessions():
     while True:
         await asyncio.sleep(3)
-        if state.expire():
+        try:
+            changed = state.expire()
+        except OSError:
+            # Expiry already invalidated in-memory availability before saving.
+            logging.getLogger(__name__).exception("Could not persist expired sessions")
+            changed = True
+        if changed:
             await broadcast_to_dashboards(snapshot())
 
 
