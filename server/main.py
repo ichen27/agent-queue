@@ -37,17 +37,21 @@ async def broadcast_to_dashboards(message: dict):
                 dashboard_clients.remove(ws)
 
 
+async def expire_and_broadcast():
+    try:
+        changed = state.expire()
+    except OSError:
+        # Expiry already invalidated in-memory availability before saving.
+        logging.getLogger(__name__).exception("Could not persist expired sessions")
+        changed = True
+    if changed:
+        await broadcast_to_dashboards(snapshot())
+
+
 async def expire_sessions():
     while True:
         await asyncio.sleep(3)
-        try:
-            changed = state.expire()
-        except OSError:
-            # Expiry already invalidated in-memory availability before saving.
-            logging.getLogger(__name__).exception("Could not persist expired sessions")
-            changed = True
-        if changed:
-            await broadcast_to_dashboards(snapshot())
+        await expire_and_broadcast()
 
 
 @asynccontextmanager
@@ -95,8 +99,7 @@ async def accept_local(ws):
 
 async def deliver_command(command: Command):
     result = {"type": "command_result", "command_id": command.command_id, "session_id": command.session_id, "ok": False}
-    if state.expire():
-        await broadcast_to_dashboards(snapshot())
+    await expire_and_broadcast()
     # Broadcasting yields: read the current session and monitor afterwards.
     session = state.sessions.get(command.session_id)
     if not session:
