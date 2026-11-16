@@ -162,3 +162,72 @@ def test_eviction_updates_connected_dashboard_without_reconnect(monkeypatch):
             assert set(snap["sessions"]) == {"s1", "s2"}
             assert {q["session_id"] for q in snap["queue"]} == {"s1", "s2"}
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("late_ok", [True, False], ids=["late_success", "late_rejection"])
+def test_timed_out_ack_cannot_complete_a_new_command(monkeypatch, late_ok):
+    monkeypatch.setattr(server, "COMMAND_TIMEOUT", .1)
+
+    async def scenario():
+        async with websockets.connect(BASE + "/ws/dashboard") as dash, websockets.connect(BASE + "/ws/monitor") as mon:
+            await publish(mon)
+            event = await receive(dash, "event")
+            revision = event["session"]["revision"]
+            original = {
+                "command": "send_text", "session_id": "s1", "command_id": "expired",
+                "expected_revision": revision, "payload": {"text": "First request"},
+            }
+            await dash.send(json.dumps(original))
+            sent = json.loads(await asyncio.wait_for(mon.recv(), 5))
+            assert sent["command_id"] == "expired"
+            assert sent["payload"] == original["payload"]
+            result = await receive(dash, "command_result")
+            assert result["command_id"] == "expired"
+            assert result["ok"] is False and result["code"] == 504
+            assert "unknown" in result["error"].lower()
+            assert not server.pending_commands and not server.busy_sessions
+            assert server.state.queue[0].status == "pending"
+            assert server.state.sessions["s1"].revision == revision
+
+            # Only an explicit new request may send another operation.
+            monkeypatch.setattr(server, "COMMAND_TIMEOUT", 5)
+            await dash.send(json.dumps({
+                **original, "command_id": "current", "payload": {"text": "Checked terminal; new request"},
+            }))
+            sent = json.loads(await asyncio.wait_for(mon.recv(), 5))
+            assert sent["command_id"] == "current"
+            assert sent["payload"]["text"] == "Checked terminal; new request"
+
+            await mon.send(json.dumps({
+                "type": "command_ack", "command_id": "expired", "ok": late_ok,
+                "error": "Delayed rejection",
+            }))
+            # An event is a processing barrier on the same ordered monitor stream.
+            # Do not discard an unexpected result while waiting for that event.
+            await publish(mon)
+            while True:
+                message = json.loads(await asyncio.wait_for(dash.recv(), 5))
+                assert message["type"] != "command_result"
+                if message["type"] == "event":
+                    break
+            assert message["session"]["status"] == "ready"
+            assert server.state.queue[0].status == "pending"
+            assert set(server.pending_commands) == {"current"}
+            assert not server.pending_commands["current"].done()
+            assert server.busy_sessions == {"s1"}
+
+            await mon.send(json.dumps({
+                "type": "command_ack", "command_id": "current", "ok": True,
+            }))
+            result = await receive(dash, "command_result")
+            assert result["command_id"] == "current" and result["ok"] is True
+            assert server.state.queue[0].status == "resolved"
+            assert server.state.sessions["s1"].status == "working"
+            assert not server.pending_commands and not server.busy_sessions
+
+            # A response barrier also proves there is no replay queued to the monitor.
+            await mon.send("[]")
+            message = json.loads(await asyncio.wait_for(mon.recv(), 5))
+            assert message == {"type": "error", "error": "Invalid monitor message"}
+
+    asyncio.run(scenario())
