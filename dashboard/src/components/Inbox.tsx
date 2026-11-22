@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import type { SessionState, Command, CommandResult } from "../types";
 
 interface Props {
@@ -44,6 +44,7 @@ export function Inbox({
   onCommand,
   onReset,
 }: Props) {
+  const sidebar = useRef<HTMLElement | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [drafts, setDrafts] = useState<Record<string, { text: string }>>({});
@@ -182,7 +183,7 @@ export function Inbox({
           </div>
         )}
         <div className={`inbox-layout ${selected ? "has-selection" : ""}`}>
-          <aside className="inbox-sidebar" aria-label="Sessions">
+          <aside ref={sidebar} tabIndex={-1} className="inbox-sidebar" aria-label="Sessions">
             <div className="sidebar-heading">
               <h2>
                 Sessions <span>{all.length}</span>
@@ -279,7 +280,11 @@ export function Inbox({
                 onCommand={trackCommand}
                 pending={commandStates[selected.session_id]?.pending ?? false}
                 result={commandStates[selected.session_id]?.result ?? null}
-                onBack={() => onSelect(null)}
+                onBack={() => {
+                  onSelect(null);
+                  // Wait until the mobile list is visible before restoring focus.
+                  requestAnimationFrame(() => sidebar.current?.focus());
+                }}
                 reply={drafts[selected.session_id]?.text ?? ""}
                 onReply={(text) =>
                   setDrafts((current) => ({
