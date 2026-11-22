@@ -85,7 +85,7 @@ export function Inbox({
       (a, b) =>
         Number(b.available) - Number(a.available) ||
         Number(needsAttention(b)) - Number(needsAttention(a)) ||
-        a.tab_name.localeCompare(b.tab_name),
+        (a.tab_name || a.session_id).localeCompare(b.tab_name || b.session_id),
     );
   const live = demo || (connected && monitorConnected);
   async function enableNotifications() {
